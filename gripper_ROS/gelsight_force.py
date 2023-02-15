@@ -97,9 +97,10 @@ def genCommand(char, command):
         command.rFR -= 25
         if command.rFR < 0:
             command.rFR = 0
-            
+
     try:
         if char == 'm':
+            command.rFR = 0
             for i in range(0, 255):
                 command.rPR = i
     except ValueError:

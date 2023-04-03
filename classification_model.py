@@ -51,14 +51,7 @@ class GelsightDataset(Dataset):
         label = label_map[label_name]
         if self.transform:
             image = self.transform(image)
-        return image, label
-    
-    def get_name(self, idx):
-        with open(self.output_path) as f:
-            data = json.load(f)
-            img_name = data[idx]['RGB_image']
-            label_name = re.split(r'[_\d]', data[idx]['RGB_image'])[1]
-        return img_name
+        return image, label, img_name
     
 def train_model(model, criterion, optimizer, scheduler, dataloaders, dataset_sizes, num_epochs=25, device='cpu'):
     since = time.time()
@@ -83,9 +76,8 @@ def train_model(model, criterion, optimizer, scheduler, dataloaders, dataset_siz
             # Iterate over data.
             loss_list = []
             acc_list = []
-            loss_dict = {0: [], 1: [], 2: [], 3: [], 4: [], 5: []}
             tqdm_data = tqdm.tqdm(dataloaders[phase], total=len(dataloaders[phase]))
-            for inputs, labels in tqdm_data:
+            for inputs, labels, img_name in tqdm_data:
                 inputs = inputs.to(device)
                 labels = labels.to(device)
 
@@ -138,7 +130,7 @@ def test_model(model, dataloaders, dataset_sizes, device='cpu'):
     y_pred = []
     y_true = []
     incorrect_names = []
-    for inputs, labels in tqdm.tqdm(dataloaders):
+    for inputs, labels, img_name in tqdm.tqdm(dataloaders):
         # print(inputs.shape)
         inputs = inputs.to(device)
         labels = labels.to(device)
@@ -148,14 +140,12 @@ def test_model(model, dataloaders, dataset_sizes, device='cpu'):
         y_pred.extend(preds.data.cpu().numpy())
         running_corrects += torch.sum(preds == labels.data)
         incorrect = torch.argwhere(preds != labels.data)
-        k = 0
         for i in incorrect:
-            k += 1
-            # print(torch.max(inputs[i, :, :, :].data.squeeze()))
-            failed_image = inputs[i, :, :, :].data.squeeze().permute(1, 2, 0).cpu().numpy()
-            cv2.imwrite(f'failed_cases/{i}.png', failed_image * 255)
+            incorrect_names.append(img_name[i])
     test_acc = running_corrects.double() / dataset_sizes['test']
     conf_matrix = confusion_matrix(y_true, y_pred)
+    print(f'Incorrect: {len(incorrect_names)}')
+    print('Incorrect names: ', incorrect_names)
     print(f'Test Acc: {test_acc:.4f}')
     print(conf_matrix)
     plt.figure(figsize=(10, 10))

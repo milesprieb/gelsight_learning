@@ -13,8 +13,10 @@ import time
 import copy
 import json
 import re
-
+from torchmetrics.classification import MulticlassAccuracy
+from sklearn.metrics import confusion_matrix
 import tqdm
+import seaborn as sns
 
 label_map = {'bishop': 0, 
              'king': 1,
@@ -51,6 +53,13 @@ class GelsightDataset(Dataset):
             image = self.transform(image)
         return image, label
     
+    def get_name(self, idx):
+        with open(self.output_path) as f:
+            data = json.load(f)
+            img_name = data[idx]['RGB_image']
+            label_name = re.split(r'[_\d]', data[idx]['RGB_image'])[1]
+        return img_name
+    
 def train_model(model, criterion, optimizer, scheduler, dataloaders, dataset_sizes, num_epochs=25, device='cpu'):
     since = time.time()
 
@@ -72,6 +81,9 @@ def train_model(model, criterion, optimizer, scheduler, dataloaders, dataset_siz
             running_corrects = 0
 
             # Iterate over data.
+            loss_list = []
+            acc_list = []
+            loss_dict = {0: [], 1: [], 2: [], 3: [], 4: [], 5: []}
             tqdm_data = tqdm.tqdm(dataloaders[phase], total=len(dataloaders[phase]))
             for inputs, labels in tqdm_data:
                 inputs = inputs.to(device)
@@ -101,7 +113,8 @@ def train_model(model, criterion, optimizer, scheduler, dataloaders, dataset_siz
 
             epoch_loss = running_loss / dataset_sizes[phase]
             epoch_acc = running_corrects.double() / dataset_sizes[phase]
-
+            loss_list.append(epoch_loss)
+            acc_list.append(epoch_acc)
             print(f'{phase} Loss: {epoch_loss:.4f} Acc: {epoch_acc:.4f}')
 
             # deep copy the model
@@ -119,7 +132,41 @@ def train_model(model, criterion, optimizer, scheduler, dataloaders, dataset_siz
     model.load_state_dict(best_model_wts)
     return model
 
+def test_model(model, dataloaders, dataset_sizes, device='cpu'):
+    model.eval()
+    running_corrects = 0
+    y_pred = []
+    y_true = []
+    incorrect_names = []
+    for inputs, labels in tqdm.tqdm(dataloaders):
+        # print(inputs.shape)
+        inputs = inputs.to(device)
+        labels = labels.to(device)
+        y_true.extend(labels.data.cpu().numpy())
+        outputs = model(inputs)
+        _, preds = torch.max(outputs, 1)
+        y_pred.extend(preds.data.cpu().numpy())
+        running_corrects += torch.sum(preds == labels.data)
+        incorrect = torch.argwhere(preds != labels.data)
+        k = 0
+        for i in incorrect:
+            k += 1
+            # print(torch.max(inputs[i, :, :, :].data.squeeze()))
+            failed_image = inputs[i, :, :, :].data.squeeze().permute(1, 2, 0).cpu().numpy()
+            cv2.imwrite(f'failed_cases/{i}.png', failed_image * 255)
+    test_acc = running_corrects.double() / dataset_sizes['test']
+    conf_matrix = confusion_matrix(y_true, y_pred)
+    print(f'Test Acc: {test_acc:.4f}')
+    print(conf_matrix)
+    plt.figure(figsize=(10, 10))
+    sns.heatmap(conf_matrix, annot=True, fmt='d')
+    plt.title('Confusion matrix')  
+    plt.ylabel('Actual label')
+    plt.xlabel('Predicted label')
+    plt.show()
+
 def main():
+    torch.cuda.empty_cache()
     train_transform = transforms.Compose([transforms.ToTensor(), 
                                           transforms.Resize((224, 224)), 
                                           transforms.RandomRotation(45), 
@@ -142,11 +189,12 @@ def main():
     # plt.show()
     train_dataloaders = DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=8)
     val_dataloaders = DataLoader(val_dataset, batch_size=32, shuffle=True, num_workers=8)
+    test_dataloaders = DataLoader(test_dataset, batch_size=32, shuffle=True, num_workers=8)
     dataloader = {'train': train_dataloaders, 'val': val_dataloaders}
-    dataset_sizes = {'train': train_dataset.__len__(), 'val': val_dataset.__len__()}
+    dataset_sizes = {'train': train_dataset.__len__(), 'val': val_dataset.__len__(), 'test': test_dataset.__len__()}
     model = torchvision.models.resnet50(pretrained=True)
     # print(model)
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    device = 'cuda:1' if torch.cuda.is_available() else 'cpu'
 
     num_epochs = 25
     optimizer = torch.optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
@@ -156,8 +204,10 @@ def main():
     model.fc = nn.Linear(model_ftrs, 6)
     criterion = nn.CrossEntropyLoss()
     model = model.to(device)
-    model = train_model(model, criterion, optimizer, scheduler, dataloader, dataset_sizes, num_epochs, device)
-    torch.save(model.state_dict(), 'classifier.pth')
+    # model = train_model(model, criterion, optimizer, scheduler, dataloader, dataset_sizes, num_epochs, device)
+    # torch.save(model.state_dict(), 'classifier.pth')
+    model.load_state_dict(torch.load('classifier.pth'))
+    test_model(model, test_dataloaders, dataset_sizes, device)
 
 
 if __name__ == "__main__":

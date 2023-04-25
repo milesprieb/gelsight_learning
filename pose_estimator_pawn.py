@@ -12,10 +12,12 @@ from torchvision.models import resnet50
 import time
 import copy
 import json
+import numpy as np
 import re
 #from torchmetrics.classification import MulticlassAccuracy
 #from sklearn.metrics import confusion_matrix
 import tqdm
+import transforms3d as t3d
 #import seaborn as sns
 
 
@@ -38,7 +40,8 @@ class GelsightDataset(Dataset):
         with open(self.output_path) as f:
             data = json.load(f)
             img_name = data[idx]['RGB_image']
-            label = [data[idx]['qz'], data[idx]['qy'], data[idx]['qx'], data[idx]['qw']]
+            label = [data[idx]['x'], data[idx]['y'], data[idx]['z'], data[idx]['qx'], data[idx]['qy'], data[idx]['qz'], data[idx]['qw']]
+            label = torch.from_numpy(np.asarray(label).astype(np.float32))
             img_path = os.path.join(self.root_dir, img_name)
         image = cv2.imread(img_path, cv2.COLOR_BGR2RGB)
         if self.transform:
@@ -69,7 +72,7 @@ def train_model(model, criterion, optimizer, scheduler, dataloaders, dataset_siz
             loss_list = []
             acc_list = []
             tqdm_data = tqdm.tqdm(dataloaders[phase], total=len(dataloaders[phase]))
-            for inputs, labels, img_name in tqdm_data:
+            for inputs, labels in tqdm_data:
                 inputs = inputs.to(device)
                 labels = labels.to(device)
 
@@ -80,7 +83,8 @@ def train_model(model, criterion, optimizer, scheduler, dataloaders, dataset_siz
                 # track history if only in train
                 with torch.set_grad_enabled(phase == 'train'):
                     outputs = model(inputs)
-                    _, preds = torch.max(outputs, 1)
+                    #print(outputs.shape)
+                    preds = outputs
                     loss = criterion(outputs, labels)
 
                     # backward + optimize only if in training phase
@@ -91,7 +95,7 @@ def train_model(model, criterion, optimizer, scheduler, dataloaders, dataset_siz
                 # statistics
                 running_loss += loss.item() * inputs.size(0)
                 running_corrects += torch.sum(preds == labels.data)
-                tqdm_data.set_postfix_str(f'{phase} Loss: {loss.item():.4f} Acc: {torch.sum(preds == labels.data).double() / inputs.size(0):.4f}')
+                tqdm_data.set_postfix_str(f'{phase} Loss: {loss.item():.4f} Acc: {torch.sum((preds - labels.data) < 5.0).double() / inputs.size(0):.4f}')
             if phase == 'train':
                 scheduler.step()
 
@@ -155,7 +159,7 @@ def main():
                                           transforms.RandomHorizontalFlip(), 
                                           transforms.RandomVerticalFlip(),])
     
-    dataset = GelsightDataset('temp', transform=train_transform)
+    dataset = GelsightDataset('tacto_dataset/temp', transform=train_transform)
     dataset_size = dataset.__len__()
     gen = torch.Generator().manual_seed(42)
     train_dataset, val_dataset, test_dataset = torch.utils.data.random_split(dataset, [0.6, 0.2, 0.2], generator=gen)
@@ -183,7 +187,7 @@ def main():
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
 
     model_ftrs = model.fc.in_features
-    model.fc = nn.Linear(model_ftrs, 3)
+    model.fc = nn.Linear(model_ftrs, 7)
     criterion = nn.MSELoss()
     model = model.to(device)
     model = train_model(model, criterion, optimizer, scheduler, dataloader, dataset_sizes, num_epochs, device)

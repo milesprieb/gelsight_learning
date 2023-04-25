@@ -34,36 +34,17 @@ class GelsightResNet(resnet.ResNet):
         super(GelsightResNet, self).__init__(**kwargs)
         self.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
         nn.init.kaiming_normal_(self.conv1.weight, mode='fan_out', nonlinearity='relu')
-        self.avgpool = nn.Identity()
+        # self.avgpool = nn.Identity()
         
-class GelsightDepth(Dataset):
+class GelsightDepthPose(Dataset):
     def __init__(self, root_dir, transform=None):
         self.output_path = os.path.join(root_dir, 'king.json')
         self.root_dir = root_dir
         self.transform = transform
-        self.image_names = glob.glob(os.path.join(root_dir, '*.tif'))
+        # self.image_names = glob.glob(os.path.join(root_dir, '*.tif'))
 
     def __len__(self):
-         return len(self.image_names)
-    
-    def __getitem__(self, idx):
-        if torch.is_tensor(idx):
-            idx = idx.tolist()
-        
-        img_name = self.image_names[idx]
-        label_name = re.split(r'[_\d]'  ,img_name[idx])[1]
-        label = label_map[label_name]
-        image = cv2.imread(img_name, -1)
-        return image, label, img_name
-
-class GelsightDataset(Dataset):
-    def __init__(self, root_dir, transform=None):
-        self.output_path = os.path.join(root_dir, 'king.json')
-        self.root_dir = root_dir
-        self.transform = transform
-
-    def __len__(self):
-        with open(self.output_path) as f:
+         with open(self.output_path) as f:
             data = json.load(f)
             return len(data)
     
@@ -74,17 +55,66 @@ class GelsightDataset(Dataset):
         # img_name_list = os.listdir(image_path)
         with open(self.output_path) as f:
             data = json.load(f)
-            img_name = data[idx]['RGB_image']
-            label_name = re.split(r'[_\d]', data[idx]['RGB_image'])[1]
+            img_name = data[idx]['Depth_image'].split('.')[0]+'.tif'
+            # print(img_name)
+            # label_name = re.split(r'[_\d]'  ,img_name)[1]
+            pose = data[idx]['i']
             img_path = os.path.join(self.root_dir, img_name)
-        image = cv2.imread(img_path, cv2.COLOR_BGR2RGB)
-        label = label_map[label_name]
-        print(image.shape)
+        # print(img_path)
+        image = cv2.imread(img_path, cv2.IMREAD_UNCHANGED)
+        # print(image.shape)
+        # label = label_map[label_name]
+        image = image / 65535 * 255 
+        image = np.expand_dims(image [:, :, 0], 2)
+        # print(image.shape)
+        # image = np.clip(image, 0, 1)
+        # image = np.transpose(image, (2, 0, 1))
+        # image = image.permute(2, 0, 1)
+        # print(pose)
         if self.transform:
             image = self.transform(image)
-        print(image.shape)
-        return image, label, img_name
+        # print(image.shape)
+        return image, pose, img_name
+
+class GelsightRealDepth(Dataset):
+    def __init__(self, root_dir, transform=None):
+        self.output_path = os.path.join(root_dir, 'king.json')
+        self.root_dir = root_dir
+        self.transform = transform
+        # self.image_names = glob.glob(os.path.join(root_dir, '*.tif'))
+
+    def __len__(self):
+         with open(self.output_path) as f:
+            data = json.load(f)
+            return len(data)
     
+    def __getitem__(self, idx):
+        if torch.is_tensor(idx):
+            idx = idx.tolist()
+        
+        # img_name_list = os.listdir(image_path)
+        with open(self.output_path) as f:
+            data = json.load(f)
+            img_name = data[idx]['Depth_image'].split('.')[0]+'.png'
+            # print(img_name)
+            label_name = re.split(r'[_\d]'  ,img_name)[1]
+            img_path = os.path.join(self.root_dir, img_name)
+        # print(img_path)
+        image = cv2.imread(img_path, cv2.IMREAD_UNCHANGED)
+        # print(image.shape)
+        label = label_map[label_name]
+        # print(label)
+        image = image / 65535 * 255 
+        image = np.expand_dims(image , 2)
+        # print(image.shape)
+        # image = np.clip(image, 0, 1)
+        # image = np.transpose(image, (2, 0, 1))
+        # image = image.permute(2, 0, 1)
+        if self.transform:
+            image = self.transform(image)
+        # print(image.shape)
+        return image, label, img_name
+
 def train_model(model, criterion, optimizer, scheduler, dataloaders, dataset_sizes, num_epochs=25, device='cpu'):
 
     writer = SummaryWriter('Tacto_Resnet50')
@@ -200,8 +230,10 @@ def normalize_values(loader):
     snd_moment = torch.empty(3)
 
     for images, k, _ in tqdm.tqdm(loader):
-        print(images.sape)
+        images = images.permute(0, 3, 1, 2)
+        # print(images.shape)
         b, c, h, w = images.shape
+        # print(images.shape)
         nb_pixels = b * h * w
         sum_ = torch.sum(images, dim=[0, 2, 3])
         sum_of_square = torch.sum(images ** 2,
@@ -218,93 +250,96 @@ def normalize_values(loader):
 
 def view_images(inp, mean, std, title=None,):
     inp = inp.numpy().transpose((1, 2, 0))
+    print(inp.shape)
     # mean = np.array([0.485, 0.456, 0.406])
     # std = np.array([0.229, 0.224, 0.225])
     inp = std * inp + mean
-    inp = np.clip(inp, 0, 1)
-    plt.imshow(inp)
+    # inp = np.clip(inp, 0, 1)
+    print(inp.max())
+    plt.imshow(inp/ inp.max())
     if title is not None:
         plt.title(title)
     plt.pause(0.001)  # pause a bit so that plots are updated
     plt.show()
 
-
 def main():
     device = 'cuda:1' if torch.cuda.is_available() else 'cpu'
     torch.cuda.empty_cache()
-    train_transform = transforms.Compose([transforms.ToTensor(), 
+    train_transform = transforms.Compose([transforms.ToTensor(),
+                                        #   transforms.CenterCrop((270, 362)), 
                                           transforms.Resize((224, 224)),  
                                           transforms.RandomHorizontalFlip(), 
                                           transforms.RandomVerticalFlip(),
-                                          transforms.Normalize([0.3491, 0.3611, 0.3336], [0.2072, 0.1530, 0.1535])])
+                                          transforms.Normalize((3.6842,), (11.6374,)),
+                                          transforms.Grayscale(1),
+                                          transforms.ConvertImageDtype(torch.float32)
+                                        ])
     
     real_transform = transforms.Compose([transforms.ToTensor(), 
                                          transforms.Resize((224, 224)), 
-                                         transforms.Normalize([0.3491, 0.3611, 0.3336], [0.2072, 0.1530, 0.1535])])
+                                         transforms.Normalize((3.6842,), (11.6374,)),
+                                         transforms.Grayscale(1),
+                                            transforms.ConvertImageDtype(torch.float32)])
     
     # simulated dataset
-    dataset = GelsightDataset('data_mod/', transform=train_transform)
-    # dataset_size = dataset.__len__()
+    dataset = GelsightDepthPose('data', transform=train_transform)
+    image, pose, img_name = dataset.__getitem__(0)
+    # print(image.shape)
+    # print(pose)
+    dataloader = DataLoader(dataset, batch_size=32, shuffle=True, num_workers=4)
+    # normal_values = normalize_values(dataloader)
+    # print(normal_values)
+
     gen = torch.Generator().manual_seed(42)
     train_dataset, val_dataset, test_dataset = torch.utils.data.random_split(dataset, [0.6, 0.2, 0.2], generator=gen)
-    print('full dataset = ', dataset.__len__())
-    print('train_dataset = ', train_dataset.__len__())
-    print('valid_dataset = ', val_dataset.__len__())
-    print('test_dataset = ', test_dataset.__len__())
-    image, label, _ = train_dataset.__getitem__(10)
-    # print(label)
-    # print(image.shape)
-    # print(dataset.__len__())
-    plt.imshow(image.permute(1, 2, 0))
-    plt.show()
+
     train_dataloaders = DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=8)
-    # normal_values = normalize_values(train_dataloaders)
-    mean, std = torch.tensor([0.3491, 0.3611, 0.3336]), torch.tensor([0.2072, 0.1530, 0.1535])
-    # print(mean, std)
-    val_dataloaders = DataLoader(val_dataset, batch_size=32, shuffle=True, num_workers=8)
-    test_dataloaders = DataLoader(test_dataset, batch_size=32, shuffle=True, num_workers=8)
-    dataloader = {'train': train_dataloaders, 'val': val_dataloaders}
-    dataset_sizes = {'train': train_dataset.__len__(), 'val': val_dataset.__len__(), 'test': test_dataset.__len__()}
+
+    mean, std = torch.tensor([3.6842,]), torch.tensor([11.6374,])
     inputs, classes, _ = next(iter(train_dataloaders))
+    print(inputs.shape)
+    
     grid = torchvision.utils.make_grid(inputs)
     view_images(grid, mean, std, title=None)
     plt.show()
 
-    #  real gelsigth dataset
-    # dataset = GelsightDataset('classification_data/images', transform=real_transform)
-    # image, label, _ = dataset.__getitem__(10)
-    # print(label)
-    # print(image.shape)
-    # print(dataset.__len__())
-    # plt.imshow(image.permute(1, 2, 0))
-    # plt.show()
-    # dataset_sizes = {'test': dataset.__len__()}
-    # test_dataloader = DataLoader(dataset, batch_size=32, shuffle=True, num_workers=8)
+    val_dataloaders = DataLoader(val_dataset, batch_size=32, shuffle=True, num_workers=8)
+    test_dataloaders = DataLoader(test_dataset, batch_size=32, shuffle=True, num_workers=8)
+    dataloader = {'train': train_dataloaders, 'val': val_dataloaders}
+    dataset_sizes = {'train': train_dataset.__len__(), 'val': val_dataset.__len__(), 'test': test_dataset.__len__()}
 
-    # resnet model for classification
-    # model = torchvision.models.resnet50(pretrained=True)
     model = GelsightResNet(block=resnet.Bottleneck, layers=[3, 4, 6, 3])
     model_ftrs = model.fc.in_features
-    model.fc = nn.Linear(model_ftrs, 6)
+    # print(model_ftrs)
+    model.fc = nn.Linear(model_ftrs, 1)
     model = model.to(device)
-    # print(model)
+
+    # real dataset
+    # dataset = GelsightRealDepth('real_depth/gs_data', transform=real_transform)
+    # image, label, img_name = dataset.__getitem__(0)
+    # print(image.shape)
+    # print(label)
+    # plt.imshow(image.numpy().transpose((1, 2, 0)))
+    # # plt.show()
+    # dataset_sizes = {'test': dataset.__len__()}
+    # test_dataloaders = DataLoader(dataset, batch_size=32, shuffle=True, num_workers=8)
+
     num_epochs = 25
     optimizer = torch.optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
-    criterion = nn.CrossEntropyLoss()
+    criterion = nn.MSELoss()
     
     # training
     model = train_model(model, criterion, optimizer, scheduler, dataloader, dataset_sizes, num_epochs, device)
-    torch.save(model.state_dict(), 'classifier.pth')
+    torch.save(model.state_dict(), 'depth_pose_king.pth')
 
-    # # testing
-    # model.load_state_dict(torch.load('classifier.pth'))
-    # test_model(model, test_dataloaders, dataset_sizes, device)
+    # testing
+    model.load_state_dict(torch.load('depth_pose_king.pth'))
+    test_model(model, test_dataloaders, dataset_sizes, device)
 
-    # testing on real data
-    # model.load_state_dict(torch.load('classifier.pth'))
-    # test_model(model, test_dataloader, dataset_sizes, device)
+    #testing on real data
+     
+    
 
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

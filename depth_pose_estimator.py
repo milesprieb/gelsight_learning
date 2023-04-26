@@ -55,26 +55,27 @@ class GelsightDepthPose(Dataset):
         # img_name_list = os.listdir(image_path)
         with open(self.output_path) as f:
             data = json.load(f)
-            img_name = data[idx]['Depth_image'].split('.')[0]+'.tif'
+            img_name = data[idx]['Depth_image'].split('.')[0]+'.tiff'
             # print(img_name)
             # label_name = re.split(r'[_\d]'  ,img_name)[1]
-            pose = data[idx]['i']
+            pose = data[idx]['j']
             img_path = os.path.join(self.root_dir, img_name)
         # print(img_path)
         image = cv2.imread(img_path, cv2.IMREAD_UNCHANGED)
+        image = image / 65535
+        masked_image = np.where(image > 0, 1, 0)
         # print(image.shape)
         # label = label_map[label_name]
-        image = image / 65535 * 255 
-        image = np.expand_dims(image [:, :, 0], 2)
+        masked_image = np.expand_dims(image [:, :, 0], 2)
         # print(image.shape)
         # image = np.clip(image, 0, 1)
         # image = np.transpose(image, (2, 0, 1))
         # image = image.permute(2, 0, 1)
         # print(pose)
         if self.transform:
-            image = self.transform(image)
+            masked_image = self.transform(masked_image)
         # print(image.shape)
-        return image, pose, img_name
+        return masked_image, pose, img_name
 
 class GelsightRealDepth(Dataset):
     def __init__(self, root_dir, transform=None):

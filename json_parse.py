@@ -31,9 +31,9 @@ def check_json(path):
     print(df)
 
 def main():
-    path = '/home/rpmdt05/Code/Tacto_good/data_aug/data_mod'
+    path = '/home/user/gelsight/data_depth/data_mod'
     # combine_json(path)
-    check_json(path)
+    combine_json(path)
     # pass
 
 

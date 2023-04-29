@@ -261,7 +261,7 @@ def view_images(inp, mean, std, title=None,):
     plt.show()
 
 def main():
-    device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
+    device = 'cuda:1' if torch.cuda.is_available() else 'cpu'
     torch.cuda.empty_cache()
     train_transform = transforms.Compose([transforms.ToTensor(),
                                         #   transforms.CenterCrop((270, 362)), 
@@ -280,25 +280,25 @@ def main():
                                          transforms.ConvertImageDtype(torch.float32)])
     
     # simulated dataset
-    dataset = GelsightDepth('data', transform=train_transform)
-    image, label, img_name = dataset.__getitem__(0)
-    print(image.shape)
-    dataloader = DataLoader(dataset, batch_size=32, shuffle=True, num_workers=4)
+    # dataset = GelsightDepth('data', transform=train_transform)
+    # image, label, img_name = dataset.__getitem__(0)
+    # print(image.shape)
+    # dataloader = DataLoader(dataset, batch_size=32, shuffle=True, num_workers=4)
     # normal_values = normalize_values(dataloader)
     # print(normal_values)
 
-    gen = torch.Generator().manual_seed(42)
-    train_dataset, val_dataset, test_dataset = torch.utils.data.random_split(dataset, [0.6, 0.2, 0.2], generator=gen)
+    # gen = torch.Generator().manual_seed(42)
+    # train_dataset, val_dataset, test_dataset = torch.utils.data.random_split(dataset, [0.6, 0.2, 0.2], generator=gen)
 
-    train_dataloaders = DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=8)
+    # train_dataloaders = DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=8)
 
-    mean, std = torch.tensor([3.6842,]), torch.tensor([11.6374,])
-    inputs, classes, _ = next(iter(train_dataloaders))
-    print(inputs.shape)
+    # mean, std = torch.tensor([3.6842,]), torch.tensor([11.6374,])
+    # inputs, classes, _ = next(iter(train_dataloaders))
+    # print(inputs.shape)
     
-    grid = torchvision.utils.make_grid(inputs)
-    view_images(grid, mean, std, title=None)
-    plt.show()
+    # grid = torchvision.utils.make_grid(inputs)
+    # view_images(grid, mean, std, title=None)
+    # plt.show()
 
     # val_dataloaders = DataLoader(val_dataset, batch_size=32, shuffle=True, num_workers=8)
     # test_dataloaders = DataLoader(test_dataset, batch_size=32, shuffle=True, num_workers=8)
@@ -318,8 +318,8 @@ def main():
     # print(label)
     # plt.imshow(image.numpy().transpose((1, 2, 0)))
     # plt.show()
-    # dataset_sizes = {'test': dataset.__len__()}
-    # test_dataloader = DataLoader(dataset, batch_size=32, shuffle=True, num_workers=8)
+    dataset_sizes = {'test': dataset.__len__()}
+    test_dataloader = DataLoader(dataset, batch_size=32, shuffle=True, num_workers=8)
 
     # num_epochs = 25
     # optimizer = torch.optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
@@ -331,8 +331,8 @@ def main():
     # torch.save(model.state_dict(), 'depth_classifier.pth')
 
     # testing
-    # model.load_state_dict(torch.load('depth_classifier.pth'))
-    # test_model(model, test_dataloader, dataset_sizes, device)
+    model.load_state_dict(torch.load('depth_classifier.pth'))
+    test_model(model, test_dataloader, dataset_sizes, device)
 
     #testing on real data
      

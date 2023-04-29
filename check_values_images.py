@@ -47,12 +47,14 @@ class GelsightDepth(Dataset):
             k = data[idx]['k']
             # print(img_name)
             label_name = re.split(r'[_\d]'  ,depth_name)[1]
-            img_path = os.path.join(self.root_dir, blur_name)
+            img_path = os.path.join(self.root_dir, mask_name)
         # print(img_path)
         # print(img_path)
         # image = Image.open(img_path)
         # image = np.array(image)
-        image = cv2.imread(img_path, cv2.IMREAD_UNCHANGED)
+        image = cv2.imread(img_path, cv2.IMREAD_UNCHANGED) / 65535
+        # plt.imshow(image)
+        # plt.show()
         # print(image.max())
         # print(image.dtype)
         # print(image.shape)
@@ -62,7 +64,7 @@ class GelsightDepth(Dataset):
         # image = np.clip(image, 0, 1)
         # image = np.transpose(image, (2, 0, 1))
         # image = image.permute(2, 0, 1)
-        img_name = blur_name
+        img_name = mask_name
         if self.transform:
             image = self.transform(image)
         # print(image.shape)
@@ -80,8 +82,8 @@ def check_values(path):
 def normalize_values(loader):
     
     cnt = 0
-    fst_moment = torch.empty(3)
-    snd_moment = torch.empty(3)
+    fst_moment = torch.empty(1)
+    snd_moment = torch.empty(1)
 
     for images, k, _ in tqdm.tqdm(loader):
         # images = images.permute(0, 3, 1, 2)
@@ -103,18 +105,18 @@ def normalize_values(loader):
     return mean,std
 
 def main():
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    device = 'cuda:1' if torch.cuda.is_available() else 'cpu'
     train_transform = transforms.Compose([
         transforms.ToTensor(),
-        transforms.Resize(224),
-        transforms.Normalize([0.1050, 0.1050, 0.1050], [0.2312, 0.2312, 0.2312]),
+        transforms.Resize((224, 224)),
+        transforms.Normalize((0.1816,), (0.3842,)),
     ])
 
-    path = '/home/rpmdt05/Code/Tacto_good/data_aug/data_mod'
+    path = 'data_depth/data_mod'
     # check_values(path)
     dataset = GelsightDepth(path, transform=train_transform)
     image, label, img_name = dataset.__getitem__(0)
-    # print(image.shape)
+    print(image.shape)
     plt.title(img_name)
     plt.imshow(image.numpy().transpose(1, 2, 0))
     plt.show()

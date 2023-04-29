@@ -11,6 +11,7 @@ import pandas as pd
 import time
 import copy
 import glob
+from datetime import datetime
 import json
 import re
 from sklearn.metrics import confusion_matrix, classification_report
@@ -18,6 +19,7 @@ import tqdm
 import seaborn as sns
 import numpy as np
 import pandas as pd
+import wandb
 from torch.utils.tensorboard import SummaryWriter
 
 label_map = {'bishop': 0, 
@@ -38,7 +40,7 @@ class GelsightResNet(resnet.ResNet):
         
 class GelsightDepthPose(Dataset):
     def __init__(self, root_dir, transform=None):
-        self.output_path = os.path.join(root_dir, 'king.json')
+        self.output_path = os.path.join(root_dir, 'out.json')
         self.root_dir = root_dir
         self.transform = transform
         # self.image_names = glob.glob(os.path.join(root_dir, '*.tif'))
@@ -55,27 +57,36 @@ class GelsightDepthPose(Dataset):
         # img_name_list = os.listdir(image_path)
         with open(self.output_path) as f:
             data = json.load(f)
-            img_name = data[idx]['Depth_image'].split('.')[0]+'.tiff'
+            depth_name = data[idx]['Depth_image']
+            blur_name = data[idx]['Deapth_image_blur']
+            mask_name = data[idx]['Depth_image_masked']
+            i = data[idx]['i']
+            j = data[idx]['j']
+            k = data[idx]['k']
             # print(img_name)
-            # label_name = re.split(r'[_\d]'  ,img_name)[1]
-            pose = data[idx]['j']
-            img_path = os.path.join(self.root_dir, img_name)
+            label_name = re.split(r'[_\d]'  ,depth_name)[1]
+            img_path = os.path.join(self.root_dir, mask_name)
         # print(img_path)
-        image = cv2.imread(img_path, cv2.IMREAD_UNCHANGED)
-        image = image / 65535
-        masked_image = np.where(image > 0, 1, 0)
+        # print(img_path)
+        # image = Image.open(img_path)
+        # image = np.array(image)
+        image = cv2.imread(img_path, cv2.IMREAD_UNCHANGED) / 65535.0
+        # plt.imshow(image)
+        # plt.show()
+        # print(image.max())
+        # print(image.dtype)
         # print(image.shape)
-        # label = label_map[label_name]
-        masked_image = np.expand_dims(image [:, :, 0], 2)
+        label = label_map[label_name]
+        # image = np.expand_dims(image [:, :, 0], 2)
         # print(image.shape)
         # image = np.clip(image, 0, 1)
         # image = np.transpose(image, (2, 0, 1))
         # image = image.permute(2, 0, 1)
-        # print(pose)
+        img_name = mask_name
         if self.transform:
-            masked_image = self.transform(masked_image)
+            image = self.transform(image)
         # print(image.shape)
-        return masked_image, pose, img_name
+        return image, np.float32(j), img_name
 
 class GelsightRealDepth(Dataset):
     def __init__(self, root_dir, transform=None):
@@ -118,7 +129,15 @@ class GelsightRealDepth(Dataset):
 
 def train_model(model, criterion, optimizer, scheduler, dataloaders, dataset_sizes, num_epochs=25, device='cpu'):
 
-    writer = SummaryWriter('Tacto_Resnet50')
+    # writer = SummaryWriter('Tacto_Mask_Resnet50')
+    wandb.init(
+    # set the wandb project where this run will be logged
+    project="tacto-mask-sim",
+    id="regression_{}".format(datetime.now().strftime("%Y%m%d_%H%M%S")),
+    # track hyperparameters and run metadata
+    config={
+    "epochs": 24,
+    })
     since = time.time()
 
     best_model_wts = copy.deepcopy(model.state_dict())
@@ -170,8 +189,8 @@ def train_model(model, criterion, optimizer, scheduler, dataloaders, dataset_siz
 
             epoch_loss = running_loss / dataset_sizes[phase]
             epoch_acc = running_corrects.double() / dataset_sizes[phase]
-            writer.add_scalar(f'{phase}_loss', epoch_loss, epoch)
-            writer.add_scalar(f'{phase}_acc', epoch_acc, epoch)
+            wandb.log({f'{phase}_loss': epoch_loss}, step=epoch)
+            wandb.log({f'{phase}_acc': epoch_acc}, step=epoch)
             loss_list.append(epoch_loss)
             acc_list.append(epoch_acc)
             print(f'{phase} Loss: {epoch_loss:.4f} Acc: {epoch_acc:.4f}')
@@ -186,7 +205,7 @@ def train_model(model, criterion, optimizer, scheduler, dataloaders, dataset_siz
     time_elapsed = time.time() - since
     print(f'Training complete in {time_elapsed // 60:.0f}m {time_elapsed % 60:.0f}s')
     print(f'Best val Acc: {best_acc:4f}')
-    writer.close()
+    wandb.finish()
 
     # load best model weights
     model.load_state_dict(best_model_wts)
@@ -224,31 +243,6 @@ def test_model(model, dataloaders, dataset_sizes, device='cpu'):
     plt.xlabel('Predicted label')
     plt.show()
 
-def normalize_values(loader):
-    
-    cnt = 0
-    fst_moment = torch.empty(3)
-    snd_moment = torch.empty(3)
-
-    for images, k, _ in tqdm.tqdm(loader):
-        images = images.permute(0, 3, 1, 2)
-        # print(images.shape)
-        b, c, h, w = images.shape
-        # print(images.shape)
-        nb_pixels = b * h * w
-        sum_ = torch.sum(images, dim=[0, 2, 3])
-        sum_of_square = torch.sum(images ** 2,
-                                  dim=[0, 2, 3])
-        fst_moment = (cnt * fst_moment + sum_) / (
-                      cnt + nb_pixels)
-        snd_moment = (cnt * snd_moment + sum_of_square) / (
-                            cnt + nb_pixels)
-        cnt += nb_pixels
-
-    mean, std = fst_moment, torch.sqrt(
-      snd_moment - fst_moment ** 2)        
-    return mean,std
-
 def view_images(inp, mean, std, title=None,):
     inp = inp.numpy().transpose((1, 2, 0))
     print(inp.shape)
@@ -269,23 +263,25 @@ def main():
     train_transform = transforms.Compose([transforms.ToTensor(),
                                         #   transforms.CenterCrop((270, 362)), 
                                           transforms.Resize((224, 224)),  
-                                          transforms.RandomHorizontalFlip(), 
-                                          transforms.RandomVerticalFlip(),
-                                          transforms.Normalize((3.6842,), (11.6374,)),
-                                          transforms.Grayscale(1),
+                                        #   transforms.RandomHorizontalFlip(), 
+                                        #   transforms.RandomVerticalFlip(),
+                                        #   transforms.Normalize((3.6842,), (11.6374,)),
+                                        #   transforms.Grayscale(1),
                                           transforms.ConvertImageDtype(torch.float32)
                                         ])
     
     real_transform = transforms.Compose([transforms.ToTensor(), 
                                          transforms.Resize((224, 224)), 
-                                         transforms.Normalize((3.6842,), (11.6374,)),
-                                         transforms.Grayscale(1),
+                                        #  transforms.Normalize((3.6842,), (11.6374,)),
+                                        #  transforms.Grayscale(1),
                                             transforms.ConvertImageDtype(torch.float32)])
     
     # simulated dataset
-    dataset = GelsightDepthPose('data', transform=train_transform)
+    dataset = GelsightDepthPose('data_depth/data_mod', transform=train_transform)
     image, pose, img_name = dataset.__getitem__(0)
     # print(image.shape)
+    # plt.imshow(image.permute(1, 2, 0))
+    # plt.show()
     # print(pose)
     dataloader = DataLoader(dataset, batch_size=32, shuffle=True, num_workers=4)
     # normal_values = normalize_values(dataloader)
@@ -296,10 +292,10 @@ def main():
 
     train_dataloaders = DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=8)
 
-    mean, std = torch.tensor([3.6842,]), torch.tensor([11.6374,])
+    mean, std = 0, 1
     inputs, classes, _ = next(iter(train_dataloaders))
     print(inputs.shape)
-    
+
     grid = torchvision.utils.make_grid(inputs)
     view_images(grid, mean, std, title=None)
     plt.show()
@@ -325,7 +321,7 @@ def main():
     # dataset_sizes = {'test': dataset.__len__()}
     # test_dataloaders = DataLoader(dataset, batch_size=32, shuffle=True, num_workers=8)
 
-    num_epochs = 25
+    num_epochs = 100
     optimizer = torch.optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
     criterion = nn.MSELoss()

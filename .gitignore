@@ -1,0 +1,9 @@
+Tacto_Resnet50
+Tacto_Mask_Resnet50
+data
+models
+wandb
+failed_cases
+results and images
+.vscode
+__pycache__

@@ -34,7 +34,7 @@ pip install -r requirements/examples.txt
 ```
 
 - Write [```./src/demo_pybullet_digit.py```](src/demo_pybullet_digit.py) to ```/examples/demo_pybullet_digit.py```
-- Copy [```./src/objects.zip```](```./src/objects.zip```) to ```/examples/``` and extract. 
+- Copy [```./src/objects.zip```](```src/objects.zip```) to ```/examples/``` and extract. 
 - Run with ```python3 demo_pybullet_digit.py``` to start rendering.
 
 **Note:** The ```demo_pybullet_digit.py``` file is a modified version of the origional ```demo_pybullet.py``` file. It is modified to work with the ```objects.zip``` file.

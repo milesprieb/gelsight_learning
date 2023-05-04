@@ -54,7 +54,7 @@ The script then moves the piece to the home position and releases the piece.
 ## [Classification Model](https://drive.google.com/drive/folders/1mykcNLeSqjIRARKxkEUXOAmWEU-rAeOe?usp=share_link)
 This contains the classification model for the GelSight sensor. It is a pretrained model that can be used to classify the images from the sensor. To use this model, download the folder and place it in the ```/src/``` directory.
 
-- [```classification_blur_model.py```](/src/classification_blur_model.py) This is the main file for the classification model. The model takes ```224x224x1``` real or blurred simulated image as input and outputs a ```6``` vector. The output is a one-hot encoded vector for the class of the piece. 
+###[```classification_blur_model.py```](/src/classification_blur_model.py) This is the main file for the classification model. The model takes ```224x224x1``` real or blurred simulated image as input and outputs a ```6``` vector. The output is a one-hot encoded vector for the class of the piece. 
 
 This uses a modified ResNet-50 model pretrained on the ImageNet dataset. The model is then fine-tuned on the GelSight dataset.
 
@@ -62,6 +62,6 @@ This uses a modified ResNet-50 model pretrained on the ImageNet dataset. The mod
 
 **Note** [```./src/classification_depth_model```](/src/classification_depth_model.py) This is the same as the ```classification_blur_model.py``` file, but an earlier version. It is not used in the final code.
 
- - [```classification_blur_model.py```](/src/classification_blur_model.py) This is the main file for the classification model. The model takes ```224x224x3``` real or simulated RGB input and outputs a ```6``` vector. The output is a one-hot encoded vector for the class of the piece. 
+ ###[```classification_blur_model.py```](/src/classification_blur_model.py) This is the main file for the classification model. The model takes ```224x224x3``` real or simulated RGB input and outputs a ```6``` vector. The output is a one-hot encoded vector for the class of the piece. 
 
  **Note** This takes the raw RGB image as input. It does not use the depth image.

@@ -1,35 +1,24 @@
 import torch
-import torchvision
 from torchvision import transforms
 from torch.utils.data import DataLoader, Dataset
+import torch.nn.functional as F
 import torch.nn as nn
 import os
 import cv2
 import matplotlib.pyplot as plt
+import torchvision.models as models
 from torchvision.models import resnet50, ResNet50_Weights, resnet
-import pandas as pd
 import time
 from datetime import datetime
 import copy
 import glob
 import json
-import re
 from sklearn.metrics import confusion_matrix, classification_report
 import tqdm
-import seaborn as sns
-import numpy as np
-import pandas as pd
-import random
+# import seaborn as sns
 import wandb
-
-
-label_map = {'bishop': 0, 
-             'king': 1,
-             'knight': 2,
-             'pawn': 3,
-             'queen': 4,
-             'rook': 5,
-             }
+from torchvision.models import ResNet50_Weights
+import numpy as np
 
 
 class GelsightResNet(resnet.ResNet):
@@ -39,13 +28,40 @@ class GelsightResNet(resnet.ResNet):
         nn.init.kaiming_normal_(self.conv1.weight, mode='fan_out', nonlinearity='relu')
         self.maxpool = nn.Identity()
         
+class Pen(Dataset):
+    def __init__(self, root_dir, transform=None):
+        self.root = root_dir
+        # self.image_names = os.listdir(root_dir)
+        self.output_path = os.path.join(root_dir, 'pen.json')
+        self.transform = transform
+
+    def __len__(self):
+        with open(self.output_path) as f:
+            data = json.load(f)
+            return len(data)
+    
+    def __getitem__(self, idx):
+        if torch.is_tensor(idx):
+            idx = idx.tolist()
+        with open(self.output_path) as f:
+            data = json.load(f)
+            image_name = data[idx]['RGB_image']
+            img_path = os.path.join(self.root, image_name)
+            image = cv2.imread(img_path, cv2.IMREAD_UNCHANGED)
+            label = data[idx]['j']
+        if self.transform:
+            image = self.transform(image)
+        return image, label, image_name
+
+
 class GelsightDepth(Dataset):
     def __init__(self, root_dir, transform=None):
-        self.output_path = os.path.join(root_dir, 'full.json')
+        self.output_path = os.path.join(root_dir, 'pen.json')
+        with open(self.output_path) as f:
+            self.data = json.load(f)
         self.root_dir = root_dir
         self.transform = transform
         # self.image_names = glob.glob(os.path.join(root_dir, '*.tif'))
-
     def __len__(self):
          with open(self.output_path) as f:
             data = json.load(f)
@@ -56,37 +72,27 @@ class GelsightDepth(Dataset):
             idx = idx.tolist()
         
         # img_name_list = os.listdir(image_path)
-        with open(self.output_path) as f:
-            data = json.load(f)
-            depth_name = data[idx]['Depth_image']
-            blur_name = data[idx]['Deapth_image_blur']
-            mask_name = data[idx]['Depth_image_masked']
-            i = data[idx]['i']
-            j = data[idx]['j']
-            k = data[idx]['k']
-            # print(img_name)
-            label_name = re.split(r'[_\d]'  ,blur_name)[1]
-            img_path = os.path.join(self.root_dir, blur_name)
-        # print(img_path)
-        # print(img_path)
-        # image = Image.open(img_path)
-        # image = np.array(image)
+        data = self.data
+        depth_name = data[idx]['Depth_image']
+        rgb_name = data[idx]['RGB_image']
+        #blur_name = data[idx]['Deapth_image_blur']
+        #mask_name = data[idx]['Depth_image_masked']
+        i = data[idx]['i']
+        j = data[idx]['j']
+        k = data[idx]['k']
+        # print(img_name)
+        #label_name = re.split(r'[_\d]'  ,depth_name)[1]
+        img_path = os.path.join(self.root_dir, depth_name)
+     
         image = cv2.imread(img_path, cv2.IMREAD_UNCHANGED) / 65535.0
-        # plt.imshow(image)
-        # plt.show()
-        # print(image.max())
-        # print(image.dtype)
-        # print(image.shape)
-        label = label_map[label_name]
-        # image = np.expand_dims(image [:, :, 0], 2)
-        # print(image.shape)
-        # image = np.clip(image, 0, 1)
-        # image = np.transpose(image, (2, 0, 1))
-        # image = image.permute(2, 0, 1)
-        img_name = blur_name
+     
+        label = F.one_hot(((torch.tensor(data[idx]['j']*180/np.pi) % 360)).long(), num_classes=360)
+
+
+        img_name = depth_name
         if self.transform:
             image = self.transform(image)
-        # print(image.shape)
+
         return image, label, img_name
 
 class GelsightRealDepth(Dataset):
@@ -95,9 +101,9 @@ class GelsightRealDepth(Dataset):
         self.root_dir = root_dir
         self.transform = transform
         if fine_tune:
-            self.image_names = glob.glob(os.path.join(root_dir, '*.png'))
+            self.image_names = glob.glob(os.path.join(root_dir, '*.tiff'))
         else:
-            self.image_names = glob.glob(os.path.join(root_dir, '*.png'))
+            self.image_names = glob.glob(os.path.join(root_dir, '*.tiff'))
     def __len__(self):
         #  with open(self.output_path) as f:
             # data = json.load(f)
@@ -112,45 +118,28 @@ class GelsightRealDepth(Dataset):
         img_name = img_path.split('/')[-1]
         # print(img_name)
         label_name = img_name.split('_')[1]
-        # print(label_name)
-        # img_name_list = os.listdir(image_path)
-        # with open(self.output_path) as f:
-        #     data = json.load(f)
-        #     img_name = data[idx]['Depth_image'].split('.')[0]+'.png'
-        #     # print(img_name)
-        #     label_name = re.split(r'[_\d]'  ,img_name)[1]
-        #     img_path = os.path.join(self.root_dir, img_name)
-        # print(img_path)
+   
         depth_image = cv2.imread(img_path, cv2.IMREAD_UNCHANGED) / 65535.0
-        # print(depth_image.min())
+       
         depth_image = depth_image / (depth_image.max() - depth_image.min())
-        # print(depth_image.max())
-        # plt.imshow(depth_image)
-        # plt.show()
-        image = np.where(depth_image > 0, 1, 0)
-        # image = depth_image
-        # plt.imshow(image)
-        # plt.show()
-        label = label_map[label_name]
-        # print(label)
-        # image = image / 65535 * 255 
-        # image = np.expand_dims(image , 2)
-        # print(image.shape)
-        # image = np.clip(image, 0, 1)
-        # image = np.transpose(image, (2, 0, 1))
-        # image = image.permute(2, 0, 1)
+        
+        image = depth_image
+      
+        label = None # TODO FIX: data[idx]['j']
+        exit()
+      
         if self.transform:
             image = self.transform(image)
         # print(image.shape)
         return image, label, img_name
 
-def train_model(model, criterion, optimizer, scheduler, dataloaders, dataset_sizes, num_epochs=10, device='cpu'):
+def train_model(model, criterion, optimizer, scheduler, dataloaders, dataset_sizes, num_epochs=50, device='cpu'):
 
     # writer = SummaryWriter('Tacto_Mask_Resnet50')
     wandb.init(
     # set the wandb project where this run will be logged
-    project="tacto-mask-sim",
-    id="regression_{}".format(datetime.now().strftime("%Y%m%d_%H%M%S")),
+    project="pen-rot-sim",
+    id="pen_rot_class_8",
     # track hyperparameters and run metadata
     config={
     "epochs": 9,
@@ -180,6 +169,7 @@ def train_model(model, criterion, optimizer, scheduler, dataloaders, dataset_siz
             tqdm_data = tqdm.tqdm(dataloaders[phase], total=len(dataloaders[phase]))
             for inputs, labels, img_name in tqdm_data:
                 inputs = inputs.to(device)
+                labels = labels.to(torch.float32)
                 labels = labels.to(device)
 
                 # zero the parameter gradients
@@ -190,6 +180,8 @@ def train_model(model, criterion, optimizer, scheduler, dataloaders, dataset_siz
                 with torch.set_grad_enabled(phase == 'train'):
                     outputs = model(inputs)
                     _, preds = torch.max(outputs, 1)
+                    # print(outputs.size())
+                    # print(labels.size())
                     loss = criterion(outputs, labels)
 
                     # backward + optimize only if in training phase
@@ -199,8 +191,8 @@ def train_model(model, criterion, optimizer, scheduler, dataloaders, dataset_siz
 
                 # statistics
                 running_loss += loss.item() * inputs.size(0)
-                running_corrects += torch.sum(preds == labels.data)
-                tqdm_data.set_postfix_str(f'{phase} Loss: {loss.item():.4f} Acc: {torch.sum(preds == labels.data).double() / inputs.size(0):.4f}')
+                running_corrects += torch.sum(preds == torch.argmax(labels, dim=1))
+                tqdm_data.set_postfix_str(f'{phase} Loss: {loss.item():.4f} Acc: {torch.sum(preds == torch.argmax(labels, dim=1)).double() / inputs.size(0):.4f}')
             if phase == 'train':
                 scheduler.step()
 
@@ -211,6 +203,8 @@ def train_model(model, criterion, optimizer, scheduler, dataloaders, dataset_siz
             loss_list.append(epoch_loss)
             acc_list.append(epoch_acc)
             print(f'{phase} Loss: {epoch_loss:.4f} Acc: {epoch_acc:.4f}')
+            torch.save(model.state_dict(), 'pen_rot_class.pth')
+
 
             # deep copy the model
             if phase == 'val' and epoch_acc > best_acc:
@@ -285,16 +279,14 @@ def main():
     train_transform = transforms.Compose([transforms.ToTensor(),
                                         #   transforms.CenterCrop((270, 362)), 
                                           transforms.Resize((224, 224)),  
-                                          transforms.RandomHorizontalFlip(), 
-                                          transforms.RandomVerticalFlip(),
+                                        #   transforms.RandomHorizontalFlip(), 
+                                        #   transforms.RandomVerticalFlip(),
                                         #   transforms.Normalize((0.1050,), (0.2312,)),
-                                        transforms.ConvertImageDtype(torch.float32),
+                                        # transforms.ConvertImageDtype(torch.float32),
                                         ])
     
     real_transform = transforms.Compose([transforms.ToTensor(), 
-                                         transforms.Resize((224, 224)), 
-                                         transforms.RandomHorizontalFlip(),
-                                         transforms.RandomVerticalFlip(),
+                                         transforms.Resize((224, 224), antialias=True), 
                                         #  transforms.Normalize((0.1050,), (0.2312,)),
                                         #  transforms.Grayscale(1),
                                          transforms.ConvertImageDtype(torch.float32),
@@ -317,12 +309,12 @@ def main():
     # val_dataloaders = DataLoader(val_dataset, batch_size=32, shuffle=True, num_workers=8)
     # test_dataloaders = DataLoader(test_dataset, batch_size=32, shuffle=True, num_workers=8)
 
-    # # mean, std = 0, 1
-    # # inputs, classes, _ = next(iter(train_dataloaders))
-    # # # print(inputs.shape)
+    # mean, std = 0, 1
+    # inputs, classes, _ = next(iter(train_dataloaders))
+    # # print(inputs.shape)
     
-    # # grid = torchvision.utils.make_grid(inputs)
-    # # view_images(grid, mean, std, title=None)
+    # grid = torchvision.utils.make_grid(inputs)
+    # view_images(grid, mean, std, title=None)
 
   
     # dataloader = {'train': train_dataloaders, 'val': val_dataloaders}
@@ -330,108 +322,64 @@ def main():
 
     model = GelsightResNet(block=resnet.Bottleneck, layers=[3, 4, 6, 3])
     model_ftrs = model.fc.in_features
-    # # print(model_ftrs)
+    # print(model_ftrs)
     # add dropout
     model.fc = nn.Sequential(
         nn.Dropout(0.8),
-        nn.Linear(model_ftrs, 6)
+        nn.Linear(model_ftrs, 360)
     )
-    model.fc = nn.Linear(model_ftrs, 6)
+    # model.fc = nn.Linear(model_ftrs, 6)
+    model = model.to(device)
+    
+    
     model = model.to(device)
 
-    # real dataset
-    dataset = GelsightRealDepth('/home/rpmdt05/Code/gelsight/gs_data_full', transform=real_transform, )
+    # # real dataset
+    dataset = GelsightDepth('/home/rpmdt05/Code/Tacto_good/data/', transform=real_transform)
 
     gen = torch.Generator().manual_seed(42)
-    # train_dataset, val_dataset, test_dataset = torch.utils.data.random_split(dataset, [0.6, 0.2, 0.2], generator=gen)
+    train_dataset, val_dataset, test_dataset = torch.utils.data.random_split(dataset, [0.6, 0.2, 0.2], generator=gen)
 
-    # train_dataloaders = DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=8)
-    # val_dataloaders = DataLoader(val_dataset, batch_size=32, shuffle=True, num_workers=8)
-    # test_dataloaders = DataLoader(test_dataset, batch_size=32, shuffle=True, num_workers=8)
+    train_dataloaders = DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=8)
+    val_dataloaders = DataLoader(val_dataset, batch_size=32, shuffle=True, num_workers=8)
+    test_dataloaders = DataLoader(test_dataset, batch_size=32, shuffle=True, num_workers=8)
 
-    # dataloader = {'train': train_dataloaders, 'val': val_dataloaders}
-    # dataset_sizes_train = {'train': train_dataset.__len__(), 'val': val_dataset.__len__(), 'test': test_dataset.__len__()}
-
-    # image2, label, img_name = dataset.__getitem__(0)
-    # print(image.shape)
-    # plt.title(img_name)
-    # plt.imshow(image.numpy().transpose((1, 2, 0)))
-    # plt.show()
-
-    # dataset_sizes_real = {'test': dataset.__len__()}
-    train_real_dataset, val_real_dataset, test_real_dataset = torch.utils.data.random_split(dataset, [0.25, 0.25, 0.5], generator=gen)
-    train_real_loader = DataLoader(train_real_dataset, batch_size=32, shuffle=True, num_workers=8)
-    val_real_loader = DataLoader(val_real_dataset, batch_size=32, shuffle=True, num_workers=8)
-    test_real_loader = DataLoader(test_real_dataset, batch_size=32, shuffle=True, num_workers=8)
-
-    dataloader_real = {'train': train_real_loader, 'val': val_real_loader}
-    dataset_sizes_real = {'train': train_real_dataset.__len__(), 'val': val_real_dataset.__len__(), 'test': test_real_dataset.__len__()}
-    # print(train_real_dataset.__len__(), val_real_dataset.__len__(), test_real_dataset.__len__())
-    # print(train)
-    # test_dataloaders = DataLoader(dataset, batch_size=32, shuffle=True, num_workers=8)
-
-    # for i in range(100):
-    #     i_sim = np.random.randint(0, dataset_sim.__len__())
-    #     image1, label1, img_name1 = dataset_sim[i_sim]
-    #     image2, label2, img_name2 = dataset[i]
-    #     fig = plt.figure(figsize=(10, 10))
-    #     fig.add_subplot(1, 2, 1)
-    #     plt.title(img_name1)
-    #     plt.imshow(image1.numpy().transpose((1, 2, 0)))
-    #     fig.add_subplot(1, 2, 2)
-    #     plt.title(img_name2)
-    #     plt.imshow(image2.numpy().transpose((1, 2, 0)))
-    #     plt.show()
+    dataloader = {'train': train_dataloaders, 'val': val_dataloaders}
+    dataset_sizes_train = {'train': train_dataset.__len__(), 'val': val_dataset.__len__(), 'test': test_dataset.__len__()}
 
     num_epochs = 10
     optimizer = torch.optim.SGD(model.parameters(), lr=0.001, momentum=0.9, weight_decay=1e-2)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
-    criterion = nn.CrossEntropyLoss()
+    criterion = nn.CrossEntropyLoss()  
+      
+    # # training
+    model = train_model(model, criterion, optimizer, scheduler, dataloader, dataset_sizes_train, num_epochs, device)
     
-    # training
-    # model = train_model(model, criterion, optimizer, scheduler, dataloader, dataset_sizes_train, num_epochs, device)
-    # torch.save(model.state_dict(), 'depth_blur_classifier.pth')
 
-    # # training on real data
-    # model.load_state_dict(torch.load('new_mask_classifier.pth', map_location=torch.device('cpu')))
-    # model = train_model(model, criterion, optimizer, scheduler, dataloader_real, dataset_sizes_real, num_epochs, device)
-    # torch.save(model.state_dict(), 'new_mask_FT_classifier.pth')
-
-    # testing
-    model.load_state_dict(torch.load('depth_blur_real_classifier.pth', map_location=torch.device('cpu')))
-    # test_model(model, test_real_loader, dataset_sizes_real, device)
-    # test_model(model, test_dataloaders, dataset_sizes_real, device)
-
-    # #testing on real data
-    # torch.cuda.empty_cache()
-
-    # model.load_state_dict(torch.load('depth_classifier.pth'))
-    
-    # train_model(model, criterion, optimizer, scheduler, dataloader, dataset_sizes_train, num_epochs, device)
-    # torch.save(model.state_dict(), 'depth_classifier.pth')
-
-    # dataset = GelsightRealDepth('/home/rpmdt05/Code/gelsight/gs_data_full', transform=real_transform, fine_tune=False)
-
-    # dataset_sizes_real = {'test': dataset.__len__()}
-    # test_dataloaders = DataLoader(dataset, batch_size=32, shuffle=True, num_workers=8)
-
-    # test_model(model, test_dataloaders, dataset_sizes_real, device)
-
-
-    input = '/home/rpmdt05/Code/gelsight/gs_data/Depth_pawn_1682108389_3322775.png'
-    depth_image = cv2.imread(input, cv2.IMREAD_UNCHANGED) / 65535.0
+    # # testing
+    model.load_state_dict(torch.load('/home/rpmdt05/Code/gelsight/src/pen_rot_class.pth'))
+    # dataset_sizes_test = {'test': dataset.__len__()}
+    # test_model(model, test_dataloaders, dataset_sizes_test, device)
+    # dataset = GelsightDepth('/home/rpmdt05/Code/Tacto_good/data/', transform=real_transform)
+    # dataloader = DataLoader(dataset, batch_size=1, shuffle=True, num_workers=8)
+    # image, label, img_name = dataset.__getitem__(0)
+    # print(image.shape)
+    # print(label)
+    # plt.imshow(image.numpy().transpose((1, 2, 0)))
+    # plt.title(img_name)
+    # plt.show()
     # print(depth_image.dtype)
  
     # print(depth_image.min())
-    depth_image = depth_image / (depth_image.max() - depth_image.min())
+    # depth_image = depth_image / (depth_image.max() - depth_image.min())
     # print(depth_image.max())
     # cv2.imshow('depth', depth_image)
-    inputs = torch.tensor(depth_image, dtype=torch.float).to(device)
-    # Convert from 224x224 to 1x224x224
-    inputs = inputs.unsqueeze(0)
+    # inputs = torch.tensor(depth_image, dtype=torch.float).to(device)
+    # # Convert from 224x224 to 1x224x224
+    # inputs = inputs.unsqueeze(0)
 
-    # Convert to a batch of 1
-    inputs = inputs.unsqueeze(0)
+    # # Convert to a batch of 1
+    # inputs = inputs.unsqueeze(0)
     
     # print(inputs.shape)
     # inputs = inputs.unsqueeze(-1)
@@ -439,11 +387,18 @@ def main():
     # inputs = inputs.unsqueeze(0)
     # print(inputs.shape)
     model.eval()
-    outputs = model(inputs)
-    print(outputs)
-    _, preds = torch.max(outputs, 1)
-    print(preds)
-
-
+    # outputs = model(inputs.view((1, 1, 224, 224)))
+    image, label, img_name = next(iter(test_dataloaders))
+    for i in range(image.shape[0]):
+        image = image.to(device)
+        outputs = model(image)
+        plt.imshow(image[i].cpu().numpy().transpose((1, 2, 0)))
+        plt.title('true = {} pred = {}'.format(torch.argmax(label[i]), torch.argmax(outputs[i])))
+        plt.show()
+        # print('label = ', label)
+        # image = image.to(device)
+        # outputs = model(image)
+        # print('pred = ',outputs)
+        
 if __name__ == '__main__':
     main()

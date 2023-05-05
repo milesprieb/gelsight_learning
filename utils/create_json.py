@@ -42,9 +42,9 @@ def main():
     # # print(out)
     # json_object = json.dumps(out, indent = 0)
     # with open('classification_data/king.json', 'w') as outfile:
-    #     outfile.write(json_object)
+    #     outfile.write(json_object) 
     # create_label_json('real_depth/gs_data')
-    create_scratch_json('data_depth/data')
+    create_scratch_json('gs_data_full')
 
 if __name__ == '__main__':
     main()

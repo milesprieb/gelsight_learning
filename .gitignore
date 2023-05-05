@@ -3,6 +3,11 @@ Tacto_Mask_Resnet50
 data
 models
 wandb
+data_mod
+gs_data
+gs_data_full
+*.pth
+Real_rgb
 failed_cases
 results and images
 .vscode

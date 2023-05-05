@@ -13,11 +13,11 @@ def combine_json(path):
     df_bishop = pd.read_json(os.path.join(path, 'bishop.json'))
     df_knight = pd.read_json(os.path.join(path, 'knight.json'))
     df_pawn = pd.read_json(os.path.join(path, 'pawn.json'))
-    df_queen = pd.read_json(os.path.join(path, 'queen.json')) 
+    df_queen = pd.read_json(os.path.join(path, 'queen.json'))
     df_rook = pd.read_json(os.path.join(path, 'rook.json'))
     df = pd.concat([df_king, df_bishop, df_knight, df_pawn, df_queen, df_rook])
     df = df.reset_index(drop=True)
-    df.to_json(os.path.join(path, 'out.json'), orient='records')
+    df.to_json(os.path.join(path, 'full.json'), orient='records')
     # print(df)
 
 def check_json(path):
@@ -31,7 +31,7 @@ def check_json(path):
     print(df)
 
 def main():
-    path = '/home/user/gelsight/data_depth/data_mod'
+    path = '/home/rpmdt05/Code/gelsight/data_mod'
     # combine_json(path)
     combine_json(path)
     # pass

@@ -17,7 +17,7 @@ This should publish the point cloud to the topic ```/gsmini_pcd```.
 
 It also publishes the ```(224,224x1)``` depth image to the topic ```/gsmini_depth```. 
 
-The origional image is published to the topic ```/gsmini_image```. 
+The original image is published to the topic ```/gsmini_image```. 
 
 **Note:** The depth image is not the same as the color image from the sensor. It is the depth image from the point cloud.
 
